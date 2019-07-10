@@ -243,9 +243,9 @@ Just to clean-up some stuff, let's delete everything we've created that
 we no longer need:
 
 ```bash
-kubectl delete cm/source
-kubectl delete -f task.yaml
-kubectl delete buildtemplate/kaniko
+$ kubectl delete cm/source
+$ kubectl delete -f task.yaml
+$ kubectl delete buildtemplate/kaniko
 ```
 
 ### Deploying the application
