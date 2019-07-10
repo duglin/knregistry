@@ -30,7 +30,8 @@ will look just like you're running it live.
 
 ## Demo Setup
 
-This demo assumes you're using [IBM's Kubernetes Service](cloud.ibm.com/iks)
+This demo assumes you're using
+[IBM's Kubernetes Service](https://cloud.ibm.com/kubernetes)
 and have Knative installed. If you don't already have this, please see
 the instructions
 [here](https://cloud.ibm.com/docs/containers?topic=containers-serverless-apps-knative#knative-setup).
