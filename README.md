@@ -15,20 +15,16 @@ Why? Couple of reasons:
 
 ## Faking it
 
-If you don't want to actually run through the demo yourself but you'd still
-like to see what it looks like when you run it, simply clone this repo and
-run:
+If you don't have an IKS cluster, don't have good internet connectivity,
+or for whatever reason just don't want to actually execute all of the steps
+of the demo but you'd still like to see what the demo looks like, simple run:
 ```bash
 $ USESAVED=1 ./demo
 ```
-
 The demo will pause for each step, just press the spacebar to continue.
 
 This will run the demo code but use the output from a saved run. The output
 will look just like you're running it live.
-
-This is also good for cases where you don't have internet connectivity but
-still want to show it off.
 
 ## Demo Setup
 
@@ -51,15 +47,12 @@ No other special setup should be needed, so let's move on to the demo
 
 You can run the demo manually or via the `demo` script.
 
-If you want to use the `demo` script make sure you set the `DOMAIN`
-environment variable to the domain name of your IKS cluster first:
+If you want to use the `demo` script, where it'll do all of the typing
+for you but still execute the commands, just run:
 
 ```bash
-$ export DOMAIN=...
+$ ./demo
 ```
-
-You can get the proper value by looking at the `Ingress Subdomain`
-value in the `ibmcloud bx ks cluster-get CLUSTER` output.
 
 For those who want to run the demo manually, let's walk through each step
 to explain what's going on.
@@ -207,7 +200,7 @@ of this new resource will kick off a Tekton execution of the referenced
 `Task`. So, let's do it:
 
 ```bash
-$ kapply task.yaml
+$ ./kapply task.yaml
 task.tekton.dev/build-push created
 taskrun.tekton.dev/build-image created
 ```
@@ -267,7 +260,7 @@ newly created image that's stored in our local Docker Registry.
 Let's create it:
 
 ```bash
-$ kapply service.yaml
+$ ./kapply service.yaml
 service.serving.knative.dev/hello created
 ```
 
@@ -290,10 +283,8 @@ curl -s http://hello-default.kntest.us-south.containers.appdomain.cloud
 All done, so let's clean-up:
 
 ```bash
-$ kubectl delete -f service.yaml
-$ kubectl delete -f hub.yaml
+$ kubectl delete -f service.yaml -f hub.yaml
 ```
-
 
 ## Some Notes
 

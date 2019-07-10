@@ -1,23 +1,28 @@
 #!/bin/bash
 
-source .demoscript
-RETRYONFAIL=1
-export DOMAIN=${DOMAIN:-v06.us-south.containers.appdomain.cloud}
-export PATH=.:$PATH
-
-(
-set +e
-kubectl delete cm/source
-kubectl delete -f hub.yaml -f task.yaml -f service.yaml
-kubectl delete buildtemplate/kaniko
-) &> /dev/null || true
-
 set -e
 
-if ! kubectl get ns tekton-pipelines &> /dev/null ; then
-  comment "Installing Tekton"
-  doit kubectl apply -f \
-      https://storage.googleapis.com/tekton-releases/latest/release.yaml
+source .demoscript
+RETRYONFAIL=1
+D=$(bx ks cluster-get $(kubectl config current-context) | grep "Ingress Subdomain" | sed "s/^.*: *\([^ ]*\) *$/\1/" )
+export DOMAIN=${DOMAIN:-$D}
+export PATH=.:$PATH
+
+comment "Talking to cluster at: ${DOMAIN}"
+
+if [[ -z "${USESAVED}" ]]; then
+  (
+  set +e
+  kubectl delete cm/source
+  kubectl delete -f hub.yaml -f task.yaml -f service.yaml
+  kubectl delete buildtemplate/kaniko
+  ) &> /dev/null || true
+
+  if ! kubectl get ns tekton-pipelines &> /dev/null ; then
+    comment "Installing Tekton"
+    doit kubectl apply -f \
+        https://storage.googleapis.com/tekton-releases/latest/release.yaml
+  fi
 fi
 
 comment "Create a configMap to hold the source code of the 'hello' app"
@@ -27,7 +32,11 @@ comment "Create the Docker Registry Knative Service"
 scroll hub.yaml
 doit kubectl apply -f hub.yaml
 
+comment "Wait for the hub to be ready..."
+wait curl -fq http://hub-default.$DOMAIN
+
 comment "Create the build 'task' and 'taskrun' - basically, do the build"
+scroll task.yaml
 doit kapply task.yaml
 
 comment "Wait for the build to finish..."
@@ -36,18 +45,19 @@ doit --untilgrep=True  kubectl get taskrun/build-image
 comment "Delete the build artifacts"
 doit kubectl delete cm/source
 doit kubectl delete -f task.yaml
-doit --ignorerc "kubectl delete buildtemplate/kaniko &> /dev/null"
+# doit --ignorerc "kubectl delete buildtemplate/kaniko &> /dev/null"
 
 comment "Create the 'hello' Knative Service using the image"
+scroll service.yaml
 doit kapply service.yaml
 
 comment "Wait for the Service to be ready..."
-doit --norepaint --untilgrep=True  kubectl get ksvc/hello
+doit --norepaint --pausetime=2 --untilgrep=True  kubectl get ksvc/hello
 
 comment "Curl/test it"
 doit --norepaint --untilgrep=Hello curl -s http://hello-default.$DOMAIN
 
 comment "Clean up"
-doit kubectl delete -f service.yaml
-doit kubectl delete -f hub.yaml
+doit kubectl delete -f service.yaml -f hub.yaml
+
 rm cmds

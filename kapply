@@ -42,7 +42,7 @@ while [[ -n "${1}" ]]; do
                 fi
             else
                 # var == env var name
-                if [[ "${!var}" == "" ]]; then
+                if [[ "${!var}" == "" && -e .env ]]; then
                     var=$(cat .env | grep "^${var}=" | sed "s/^[^=]*=//")
                 else
                     var=${!var}
