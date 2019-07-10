@@ -4,7 +4,12 @@ set -e
 
 source .demoscript
 RETRYONFAIL=1
-D=$(bx ks cluster-get $(kubectl config current-context) | grep "Ingress Subdomain" | sed "s/^.*: *\([^ ]*\) *$/\1/" )
+
+D="kntest.us-south.containers.appdomain.cloud"
+if [[ -z "${USESAVED}" || -n ${DOMAIN} ]]; then
+  D=$(bx ks cluster-get $(kubectl config current-context) | grep "Ingress Subdomain" | sed "s/^.*: *\([^ ]*\) *$/\1/" )
+fi
+
 export DOMAIN=${DOMAIN:-$D}
 export PATH=.:$PATH
 

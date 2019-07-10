@@ -2,8 +2,9 @@
 
 This repository demonstrates a few things:
 - run a Docker registry as a [Knative](https://knative.dev) Service
-- build an image using [Tekton](https://tekton.dev) and push it to that registry
-- run that image as a Knative Service
+- build an application image using [Tekton](https://tekton.dev) and push it
+  to that registry
+- run that application image as a Knative Service
 
 Why? Couple of reasons:
 - show how it's possible to run someting that is not traditionally thought of
@@ -11,7 +12,8 @@ Why? Couple of reasons:
 - show how to use Tekton as a replacement for Knative's Build feature, which
   is almost gone now
 - show how to use a local registry for times when you just don't want to deal
-  with noise like authentication and service accounts - mainly for demos
+  with noise like authentication and service accounts - see
+  [Some final notes](#some-final-notes)
 
 ## Faking it
 
@@ -35,7 +37,7 @@ the instructions
 
 As of today Tekton (the replacement for Knative Build) is not installed
 by default in IKS's Knative install, it will be soon, but for now you'll
-need to install it youself:
+need to install it yourself:
 
 ```bash
 $ kubectl apply -f https://storage.googleapis.com/tekton-releases/latest/release.yaml
@@ -62,12 +64,13 @@ to explain what's going on.
 First, we need to upload the source code for our application into
 Kubernetes so that our build process can use it. In this case we're going
 to use a ConfigMap. This has a few nice aspects to it:
-- it's easily populated via the `--from-file` option on `kubectl`
+- it's easily populated via the `--from-file` option on
+  `kubectl create configmap`
 - it can be mounted as a volume into a pod fairly easily
-- if necessary I can switch it to use a Secret instead if security is an issue
+- if necessary, I can switch it to use a Secret instead if security is an issue
 - can use it with Knative services too at some point if I wanted to. Right now
-  Knative doesn't allow generic Volumes to be mounted into Knative Services
-  - sadly.
+  Knative doesn't allow generic Volumes to be mounted into Knative Services -
+  sadly
 
 ```bash
 $ kubectl create cm source --from-file=src
@@ -109,7 +112,7 @@ If you're not familiar with Knative yet I would suggest you look at the
 other intro demo I have [here](https://github.com/duglin/helloworld) to
 understand the basic outline of this yaml.
 
-In this particular KnService I wanted to point out a couple of key things.
+In this particular Knative Service I wanted to point out a couple of key things.
 First, `minScale` and `maxScale` are both set to `1`. This means that Knative
 will always have exactly one instance of the `docker.io/registry` image
 running. In a perfect world I would let this scale up and down based on the
@@ -119,9 +122,9 @@ deleted, all images stored in this registry will be lost. Likewise, because
 there's no Volume, I can't share it across multiple instances of the Service
 to handle a large load. Thus, I'm stuck with exactly one instance.
 
-Why? Because, as I mentioned previously, Knative doesn't allow generic Volumes
+As I mentioned previously, Knative doesn't allow generic Volumes
 to be mounted. Why? Because not everyone supports it yet, so therefore they
-decided to block it for everyone. A poor decision in to me, but that's
+decided to block it for everyone. A poor decision to me, but that's
 the current state of things. If you want to watch how this progresses
 you can watch [this](https://github.com/knative/serving/issues/4417).
 
@@ -129,7 +132,7 @@ Finally, notice that it says `containerPort: 5000`. By default the Registry
 will listen on port 5000, so I need to tell Knative to route all requests to
 this port number. This allows me to continue to use http and https to talk to
 the Registry using the normal IKS/Knative networking that's automatically
-setup.
+setup for you.
 
 Now let's create the `hub` Knative Sevice:
 
@@ -170,7 +173,7 @@ I'm not going to go into
 Tekton too much, for that you can go look at its [docs](https://tekton.dev)
 or this
 [tutorial](https://developer.ibm.com/tutorials/knative-build-app-development-with-tekton/).
-For now, just know that Tekton is a build tool similar to Jeknins, that will
+For now, just know that Tekton is a build tool similar to Jenkins, that will
 perform a set of tasks that you tell it. The above yaml file defines one
 such Task. Tasks can be comprised of one or more "steps" - each is just
 the execution of a container image. In this particular case we're running
@@ -218,15 +221,15 @@ it with this command:
 $ kubectl get taskrun/build-image -w
 ```
 
-When you see something that looks like this (SUCCEEDED is `true`):
+When you see something that looks like this (SUCCEEDED is `True`):
 
 ```bash
 NAME          SUCCEEDED   REASON   STARTTIME   COMPLETIONTIME
 build-image   True                 55s         1s
 ```
 
-then it's done. If something appears to have gone wrong, look at the
-TaskRun to get more info with this command:
+then it's done and you can stop it by pressing ctrl-c. If something appears to
+have gone wrong, look at the TaskRun to get more info with this command:
 
 ```bash
 $ kubectl get taskrun/build-image -o yaml
@@ -263,7 +266,8 @@ spec:
 ```
 
 Nothing too exciting here other than the `image` property points to our
-newly created image that's stored in our local Docker Registry.
+newly created image that's stored in our local Docker Registry. Make sure
+the image name here matches the image name from the Task used to build it.
 
 Let's create it:
 
@@ -276,7 +280,7 @@ Now wait for the service to be ready. You can run this command:
 
 ```bash
 $ kubectl get ksvc/hello
-NAME    URL                                                            LATESTCREATED   LATESTREADY   READY   REASON
+NAME    URL                                                               LATESTCREATED   LATESTREADY   READY   REASON
 hello   http://hello-default.kntest.us-south.containers.appdomain.cloud   hello-mv9bv     hello-mv9bv   True
 ```
 
@@ -287,7 +291,8 @@ until the `READY` column shows `True`.
 Then we can test our app using te URL shown in the output above:
 
 ```bash
-curl -s http://hello-default.kntest.us-south.containers.appdomain.cloud
+$ curl -s http://hello-default.kntest.us-south.containers.appdomain.cloud
+4fh4n: Hello World!
 ```
 
 All done, so let's clean-up:
@@ -298,14 +303,14 @@ $ kubectl delete -f service.yaml -f hub.yaml
 
 ## Some final notes
 
-As I mentioned previsously, I picked Docker's Registry for a couple of
-reasons. Most noteably, it allows people to use a local Docker Registry
+As I mentioned previously, I picked Docker's Registry for a couple of
+reasons. Most notably, it allows people to use a local Docker Registry
 without the need to complicate demos/workshops with authentication, secrets
 and service accounts. Clearly, those are all needed in real-world environments
 but when you're trying to teach someone about Knative, those things just
 complicate matters and are a distraction.
 
-I also liked the idea of using the Docker Registry because it allow me to
+I also liked the idea of using the Docker Registry because it allows me to
 show-off using a non-traditional serverless workload. Granted, it would have
 been nice if the Registry supported scaling while using a shared Volume
 to make the point that Knative should support generic Volumes, but
@@ -321,9 +326,9 @@ rebooted.
 
 One thing I didn't hook-in yet are
 [Registry Notifications](https://docs.docker.com/registry/notifications/).
-I haven't played with this yet but it looks like we should be able to get
+I haven't played with this yet, but it looks like we should be able to get
 notifications about image updates that could then cause a new Knative
 Service Revision to be deployed - just like the old Knative Build feature
-supported.
+supported. Perhaps I'll work on that one next...
 
 If you have any comments or questions, ping me.
