@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -e
+
+TMPFILE=kapply-tmp${RANDOM}
+CMD="apply"
+OBJECT=""
+VERBOSE=""
+
+while [[ "$1" == "-"* ]]; do
+    case "$1" in
+    -t)  TESTRUN="true" ;;
+    -p)  CMD="path"
+         OBJECT="$2"
+         shift ;;
+    -v)  VERBOSE="true" ;;
+    *) echo "Uknown option '$1'" ; exit 1 ;;
+    esac
+    shift
+done
+
+while [[ -n "${1}" ]]; do
+    file="${1}"
+    shift
+
+    rm -f "${TMPFILE}"
+    IFS=''
+    cat "${file}" | while read line ; do
+        while [[ "$line" == *"\${"* && "$line" == *"}"* ]]; do
+            pre=$(echo "$line" | sed "s/\([^\$]*\)\${\([^}]*\)}\(.*\)/\1/")
+            var=$(echo "$line" | sed "s/\([^\$]*\)\${\([^}]*\)}\(.*\)/\2/")
+            rest=$(echo "$line" | sed "s/\([^\$]*\)\${\([^}]*\)}\(.*\)/\3/")
+
+            # .file.property
+            if [[ "$var" == "."* ]]; then
+                if [[ "${var:1}" == *"."* ]]; then
+                    file=$(echo "${var}" | sed "s/^\(.[^.]*\).*$/\1/")
+                    var=$(echo "${var}" | sed "s/^\(.[^.]*\)\.\(.*\)$/\2/")
+                    var=$(cat "${file}" | grep "^${var}=" | sed "s/^[^=]*=//")
+                else
+                    var=$(cat "${var}")
+                fi
+            else
+                # var == env var name
+                if [[ "${!var}" == "" ]]; then
+                    var=$(cat .env | grep "^${var}=" | sed "s/^[^=]*=//")
+                else
+                    var=${!var}
+                fi
+            fi
+
+            line="$pre$var$rest"
+        done
+        echo "$line" >> "${TMPFILE}"
+    done
+
+    # echo "> ${file}"
+    ( [[ -n "$VERBOSE" ]] || [[ -n "$TESTRUN" ]] ) && cat "${TMPFILE}"
+    if [[ -n "$TESTRUN" ]]; then
+        # cat "${TMPFILE}"
+        true
+    elif [[ "$CMD" == "apply" ]]; then
+        kubectl apply -f "${TMPFILE}"
+    else
+        kubectl patch $OBJECT --type=json -p "$(cat ${TMPFILE})"
+    fi
+    rm -f "${TMPFILE}"
+done

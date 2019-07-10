@@ -1,0 +1,53 @@
+#!/bin/bash
+
+source .demoscript
+RETRYONFAIL=1
+export DOMAIN=${DOMAIN:-v06.us-south.containers.appdomain.cloud}
+export PATH=.:$PATH
+
+(
+set +e
+kubectl delete cm/source
+kubectl delete -f hub.yaml -f task.yaml -f service.yaml
+kubectl delete buildtemplate/kaniko
+) &> /dev/null || true
+
+set -e
+
+if ! kubectl get ns tekton-pipelines &> /dev/null ; then
+  comment "Installing Tekton"
+  doit kubectl apply -f \
+      https://storage.googleapis.com/tekton-releases/latest/release.yaml
+fi
+
+comment "Create a configMap to hold the source code of the 'hello' app"
+doit kubectl create cm source --from-file=src
+
+comment "Create the Docker Registry Knative Service"
+scroll hub.yaml
+doit kubectl apply -f hub.yaml
+
+comment "Create the build 'task' and 'taskrun' - basically, do the build"
+doit kapply task.yaml
+
+comment "Wait for the build to finish..."
+doit --untilgrep=True  kubectl get taskrun/build-image
+
+comment "Delete the build artifacts"
+doit kubectl delete cm/source
+doit kubectl delete -f task.yaml
+doit --ignorerc "kubectl delete buildtemplate/kaniko &> /dev/null"
+
+comment "Create the 'hello' Knative Service using the image"
+doit kapply service.yaml
+
+comment "Wait for the Service to be ready..."
+doit --norepaint --untilgrep=True  kubectl get ksvc/hello
+
+comment "Curl/test it"
+doit --norepaint --untilgrep=Hello curl -s http://hello-default.$DOMAIN
+
+comment "Clean up"
+doit kubectl delete -f service.yaml
+doit kubectl delete -f hub.yaml
+rm cmds
