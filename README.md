@@ -57,6 +57,8 @@ $ ./demo
 For those who want to run the demo manually, let's walk through each step
 to explain what's going on.
 
+### Uploading our application
+
 First, we need to upload the source code for our application into
 Kubernetes so that our build process can use it. In this case we're going
 to use a ConfigMap. This has a few nice aspects to it:
@@ -79,6 +81,8 @@ If you want you can look at the `Dockerfile` and `main.go` files in the
 `src` directory. There's not really anything too special in there so I'll
 skip any in-depth discussion of it. Just know that those two files will be used
 during the build process.
+
+### Installing the Docker Registry
 
 Now let's create the Docker Registry service that we'll be uploading our
 built image into. First, the yaml (`hub.yaml`) to create it:
@@ -133,6 +137,8 @@ Now let's create the `hub` Knative Sevice:
 $ kubectl apply -f hub.yaml
 service.serving.knative.dev/hub created
 ```
+
+### Building the application container image
 
 With our Docker Registry Knative Service running, we can now build and upload
 our application image into it. The `task.yaml` file contains two resource
@@ -239,6 +245,8 @@ kubectl delete -f task.yaml
 kubectl delete buildtemplate/kaniko
 ```
 
+### Deploying the application
+
 The `service.yaml` file will be used to create the Knative Service based
 on the image we just created and uploaded to our local registry:
 
@@ -274,6 +282,8 @@ hello   http://hello-default.kntest.us-south.containers.appdomain.cloud   hello-
 
 until the `READY` column shows `True`.
 
+### Testing the application
+
 Then we can test our app using te URL shown in the output above:
 
 ```bash
@@ -286,7 +296,7 @@ All done, so let's clean-up:
 $ kubectl delete -f service.yaml -f hub.yaml
 ```
 
-## Some Notes
+## Some final notes
 
 As I mentioned previsously, I picked Docker's Registry for a couple of
 reasons. Most noteably, it allows people to use a local Docker Registry
@@ -299,7 +309,7 @@ I also liked the idea of using the Docker Registry because it allow me to
 show-off using a non-traditional serverless workload. Granted, it would have
 been nice if the Registry supported scaling while using a shared Volume
 to make the point that Knative should support generic Volumes, but
-if we really wanted to scale things we could have used an external storage
+if I really wanted to scale things I could have used an external storage
 service as described in their
 [docs](https://docs.docker.com/registry/deploying/).
 
@@ -315,3 +325,5 @@ I haven't played with this yet but it looks like we should be able to get
 notifications about image updates that could then cause a new Knative
 Service Revision to be deployed - just like the old Knative Build feature
 supported.
+
+If you have any comments or questions, ping me.
