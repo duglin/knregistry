@@ -73,6 +73,10 @@ to use a ConfigMap. This has a few nice aspects to it:
   Knative doesn't allow generic Volumes to be mounted into Knative Services -
   sadly
 
+Of course there are issues too. It appears it doesn't support directories
+and it doesn't preserve file permissions. Ultimately, a Volume would be nice
+but for this demo's purposes a ConfigMap will do.
+
 ```bash
 $ kubectl create cm source --from-file=src
 configmap/source created
