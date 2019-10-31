@@ -1,9 +1,17 @@
 #!/bin/bash
 
+source .demoscript
 set -e
 
-source .demoscript
-RETRYONFAIL=1
+[[ -z "${USESAVED}" ]] && (
+echo "Cleaning..."
+set +e
+kubectl delete -f service.yaml -f hub.yaml -f task.yaml
+kubectl delete cm/source
+kubectl delete buildtemplate/kaniko
+) || true  # &> /dev/null || true
+
+[[ "${1}" != "--clean" ]] || exit 0
 
 D="kntest.us-south.containers.appdomain.cloud"
 if [[ -z "${USESAVED}" || -n ${DOMAIN} ]]; then
@@ -12,26 +20,17 @@ fi
 
 export DOMAIN=${DOMAIN:-$D}
 export PATH=.:$PATH
+export RETRYONFAIL=1
 
 comment "Talking to cluster at: ${DOMAIN}"
 
 if [[ -z "${USESAVED}" ]]; then
-  (
-  set +e
-  kubectl delete cm/source
-  kubectl delete -f hub.yaml -f task.yaml -f service.yaml
-  kubectl delete buildtemplate/kaniko
-  ) &> /dev/null || true
-
   if ! kubectl get ns tekton-pipelines &> /dev/null ; then
     comment "Installing Tekton"
     doit kubectl apply -f \
         https://storage.googleapis.com/tekton-releases/latest/release.yaml
   fi
 fi
-
-comment "Create a configMap to hold the source code of the 'hello' app"
-doit kubectl create cm source --from-file=src
 
 comment "Create the Docker Registry Knative Service"
 scroll hub.yaml
@@ -40,6 +39,9 @@ doit kubectl apply -f hub.yaml
 comment "Wait for the hub to be ready..."
 wait curl -fq http://hub-default.$DOMAIN
 
+comment "Create a configMap to hold the source code of the 'hello' app"
+doit kubectl create cm source --from-file=src
+
 comment "Create the build 'task' and 'taskrun' - basically, do the build"
 scroll task.yaml
 doit kapply task.yaml
@@ -47,13 +49,14 @@ doit kapply task.yaml
 comment "Wait for the build to finish..."
 doit --untilgrep=True  kubectl get taskrun/build-image
 
-comment "Delete the build artifacts"
-doit kubectl delete cm/source
-doit kubectl delete -f task.yaml
-# doit --ignorerc "kubectl delete buildtemplate/kaniko &> /dev/null"
+# comment "Delete the build artifacts"
+# doit kubectl delete cm/source
+# doit kubectl delete -f task.yaml
+# # doit --ignorerc "kubectl delete buildtemplate/kaniko &> /dev/null"
 
 comment "Create the 'hello' Knative Service using the image"
-scroll service.yaml
+# scroll service.yaml
+doit kapply -t service.yaml
 doit kapply service.yaml
 
 comment "Wait for the Service to be ready..."
@@ -63,6 +66,6 @@ comment "Curl/test it"
 doit --norepaint --untilgrep=Hello curl -s http://hello-default.$DOMAIN
 
 comment "Clean up"
-doit kubectl delete -f service.yaml -f hub.yaml
+doit $0 --clean
 
 rm cmds
