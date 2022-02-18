@@ -6,23 +6,14 @@ set -e
 [[ -z "${USESAVED}" ]] && (
 echo "Cleaning..."
 set +e
-kubectl delete -f service.yaml -f hub.yaml -f task.yaml
-kubectl delete cm/source
+kubectl delete ksvc/hello ksvc/hub cm/source taskrun/build-image
 kubectl delete buildtemplate/kaniko
-) || true  # &> /dev/null || true
+) &> /dev/null || true
 
 [[ "${1}" != "--clean" ]] || exit 0
 
-D="kntest.us-south.containers.appdomain.cloud"
-if [[ -z "${USESAVED}" || -n ${DOMAIN} ]]; then
-  D=$(bx ks cluster-get $(kubectl config current-context) | grep "Ingress Subdomain" | sed "s/^.*: *\([^ ]*\) *$/\1/" )
-fi
-
-export DOMAIN=${DOMAIN:-$D}
 export PATH=.:$PATH
 export RETRYONFAIL=1
-
-comment "Talking to cluster at: ${DOMAIN}"
 
 if [[ -z "${USESAVED}" ]]; then
   if ! kubectl get ns tekton-pipelines &> /dev/null ; then
@@ -33,39 +24,30 @@ if [[ -z "${USESAVED}" ]]; then
 fi
 
 comment "Create the Docker Registry Knative Service"
-scroll hub.yaml
-doit kubectl apply -f hub.yaml
-
-comment "Wait for the hub to be ready..."
-wait curl -fq http://hub-default.$DOMAIN
+doit kn service create hub --image docker.io/registry --port 5000 \
+	--min-scale=1 --max-scale=1
+HUB_URL=$(tail -1 out)
+export HUB_URL=${HUB_URL:7}
 
 comment "Create a configMap to hold the source code of the 'hello' app"
+doit ls -l src
 doit kubectl create cm source --from-file=src
 
 comment "Create the build 'task' and 'taskrun' - basically, do the build"
 scroll task.yaml
 doit kapply task.yaml
 
-comment "Wait for the build to finish..."
-doit --untilgrep=True  kubectl get taskrun/build-image
-
-# comment "Delete the build artifacts"
-# doit kubectl delete cm/source
-# doit kubectl delete -f task.yaml
-# # doit --ignorerc "kubectl delete buildtemplate/kaniko &> /dev/null"
+comment "Wait for it to finish..."
+skip=1 doit --untilgrep=True  kubectl get taskrun/build-image
+# pod=$(kubectl get pods | grep build-image | sed "s/ .*//")
+# doit kubectl log ${pod}
 
 comment "Create the 'hello' Knative Service using the image"
-# scroll service.yaml
-doit kapply -t service.yaml
-doit kapply service.yaml
+doit kn service create hello --image $HUB_URL:443/hello
+URL=$(tail -1 out)
 
-comment "Wait for the Service to be ready..."
-doit --norepaint --pausetime=2 --untilgrep=True  kubectl get ksvc/hello
-
-comment "Curl/test it"
-doit --norepaint --untilgrep=Hello curl -s http://hello-default.$DOMAIN
+comment "Curl it"
+doit curl -s $URL
 
 comment "Clean up"
 doit $0 --clean
-
-rm cmds

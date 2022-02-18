@@ -1,0 +1,95 @@
+#!/bin/bash
+
+set -e
+
+CURRENT_CLUSTER=$(kubectl config current-context)
+CLUSTER=${CLUSTER:-$(kubectl config current-context)}
+EMAIL=${EMAIL:-$(ibmcloud ks cluster-get ${CLUSTER} | grep "^Owner:" | sed "s/^.*: *\([^ ]*\) *$/\1/")}
+
+if [[ -z "${CLUSTER}" ]]; then
+    echo "Missing CLUSTER"
+    echo "Usage: $0 CLUSTER EMAIL"
+    exit 1
+fi
+
+if [[ -z "${EMAIL}" ]]; then
+    echo "Missing EMAIL"
+    echo "Usage: $0 CLUSTER EMAIL"
+    exit 1
+fi
+
+echo "Fixing cluster: ${CLUSTER}"
+echo -e "Using email: ${EMAIL}\n"
+
+if [[ "${CURRENT_CLUSTER}" != "${CLUSTER}" ]]; then
+    echo "Getting config data for cluster '${CLUSTER}'"
+    ibmcloud config --check-version false
+    $(ibmcloud ks cluster-config --export ${CLUSTER})
+fi
+
+echo "Check for icr secrets in 'default' namespace"
+if ! kubectl get secrets -n default | grep "icr-io" &> /dev/null ; then
+    # First make sure we have the right access
+    ibmcloud iam user-policy-create ${EMAIL} \
+        --service-name containers-kubernetes --roles Administrator,Operator
+    ibmcloud iam user-policy-create ${EMAIL} \
+        --service-name container-registry --roles Administrator
+
+    echo "  Creating the secrets"
+    ibmcloud ks cluster-pull-secret-apply --cluster ${CLUSTER}
+
+    echo -n "  Waiting for the secrets"
+    while ! kubectl get secrets -n default | grep "icr-io" &> /dev/null ; do
+        echo -n "."
+        sleep 5
+    done
+
+    echo "These icr secrets have been created in the 'default' namespace"
+    kubectl get secrets -n default | grep "icr.io"
+fi
+
+# Copy the icr secrets from the 'default' namespace to all other namespaces
+NAMESPACES=$(kubectl get ns -o=custom-columns=N:metadata.name --no-headers | grep -v "^default$")
+SECRETS=$(kubectl get secrets -o=custom-columns=N:metadata.name --no-headers | grep "icr.io")
+
+for ns in ${NAMESPACES}; do
+    echo "Checking for icr secrets in namespace '${ns}'"
+    if ! kubectl get secrets -n ${ns} | grep "icr.io" &> /dev/null ; then
+        for sec in ${SECRETS}; do
+            newName=${sec/default/$ns}
+            echo "  Creating secret '${newName}' in namespace '${ns}'"
+            echo -n "  "
+            # kubectl get secret ${sec} -o yaml | sed "s/default/${ns}/g" | \
+
+            kubectl get secret ${sec} -o yaml | grep -v "namespace:" | \
+                kubectl -n ${ns} create -f -
+        done
+    fi
+done
+
+# Make sure the service account has the image pull secret
+
+for ns in default ${NAMESPACES}; do
+    tmpout=tmpfile-${RANDOM}
+    echo "Checking service account in namespace '${ns}'"
+    kubectl describe sa/default -n ${ns} > ${tmpout}
+    first=$(grep "Image pull secret.*<none>" ${tmpout} || true)
+    for sec in bluemix-default-secret ${SECRETS} ; do
+        if ! grep "${sec}" ${tmpout} &> /dev/null ; then
+            if [[ -n "${first}" ]]; then
+                first=""
+                echo "  Setting secret '${sec}'"
+                echo -n "  "
+                kubectl patch -n ${ns} serviceaccount/default \
+                    -p "{\"imagePullSecrets\":[{\"name\": \"${sec}\"}]}"
+            else
+                echo "  Adding secret '${sec}'"
+                echo -n "  "
+                kubectl patch -n ${ns} sa/default --type='json' \
+                    -p="[{\"op\":\"add\",\"path\":\"/imagePullSecrets/-\",\"value\":{\"name\":\"${sec}\"}}]"
+            fi
+        fi
+    done
+    rm -f ${tmpout}
+done
+

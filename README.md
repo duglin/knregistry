@@ -93,35 +93,17 @@ during the build process.
 ### Installing the Docker Registry
 
 Now let's create the Docker Registry service that we'll be uploading our
-built image into. First, the yaml (`hub.yaml`) to create it:
+built image into.
 
 ```
-apiVersion: serving.knative.dev/v1alpha1
-kind: Service
-metadata:
-  name: hub
-spec:
-  template:
-    metadata:
-      annotations:
-        autoscaling.knative.dev/minScale: "1"
-        autoscaling.knative.dev/maxScale: "1"
-    spec:
-      containers:
-      - image: docker.io/registry
-        ports:
-        - containerPort: 5000
+kn service create hub --image docker.io/registry --port 5000 --min-scale=1 --max-scale=1
 ```
-
-If you're not familiar with Knative yet I would suggest you look at the
-other intro demo I have [here](https://github.com/duglin/helloworld) to
-understand the basic outline of this yaml.
 
 In this particular Knative Service I wanted to point out a couple of key things.
 First, `minScale` and `maxScale` are both set to `1`. This means that Knative
 will always have exactly one instance of the `docker.io/registry` image
 running. In a perfect world I would let this scale up and down based on the
-load, but I can't because there's not Volume mounted into the Service to
+load, but I can't because there's no Volume mounted into the Service to
 acts as its persistence. This means that each time the underlying pod is
 deleted, all images stored in this registry will be lost. Likewise, because
 there's no Volume, I can't share it across multiple instances of the Service
@@ -133,18 +115,11 @@ decided to block it for everyone. A poor decision to me, but that's
 the current state of things. If you want to watch how this progresses
 you can watch [this](https://github.com/knative/serving/issues/4417).
 
-Finally, notice that it says `containerPort: 5000`. By default the Registry
+Finally, notice that it says `--port  5000`. By default the Registry
 will listen on port 5000, so I need to tell Knative to route all requests to
 this port number. This allows me to continue to use http and https to talk to
 the Registry using the normal IKS/Knative networking that's automatically
 setup for you.
-
-Now let's create the `hub` Knative Sevice:
-
-```bash
-$ kubectl apply -f hub.yaml
-service.serving.knative.dev/hub created
-```
 
 ### Building the application container image
 
@@ -153,25 +128,26 @@ our application image into it. The `task.yaml` file contains two resource
 definitions that will do this for us. The first one looks like this:
 
 ```bash
-#Builds an image and push it to registry.
+# Builds an image and push it to registry.
 apiVersion: tekton.dev/v1alpha1
-kind: Task
+kind: TaskRun
 metadata:
-  name: build-push
+  name: build-image
 spec:
-  steps:
-  - name: build-and-push
-    image: gcr.io/kaniko-project/executor:v0.9.0
-    args:
-    - --destination=hub-default.${DOMAIN}:443/hello
-    - --context=/workspace/workspace
-    volumeMounts:
+  taskSpec:
+    steps:
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:v0.9.0
+      args:
+      - --destination=${HUB_URL}:443/hello
+      - --context=/workspace/workspace
+      volumeMounts:
+      - name: source
+        mountPath: /workspace/workspace
+    volumes:
     - name: source
-      mountPath: /workspace/workspace
-  volumes:
-  - name: source
-    configMap:
-      name: source
+      configMap:
+        name: source
 ```
 
 I'm not going to go into
@@ -191,31 +167,14 @@ via the `--destination` argument, and I mount our ConfigMap (the application
 source code) into the container as a Volume at `/workspace/workspace`. There's
 a lot of text in there, but that's the basic gist of what's going on.
 
-The environment variable looking thing (`${DOMAIN}`) will get replaced
+The environment variable looking thing (`${HUB_URL}`) will get replaced
 for us by the `kapply` command below - it's just a wrapper for `kubectl`
 but does environment variable substitutions first.
 
-The other resource in the yaml file will actually run that Task:
-
-```bash
-apiVersion: tekton.dev/v1alpha1
-kind: TaskRun
-metadata:
-  name: build-image
-spec:
-  taskRef:
-    name: build-push
-
-```
-
-Here you can see that we don't really do much other than defined a
-`TaskRun` resource that points to the `Task` we created above. The creation
-of this new resource will kick off a Tekton execution of the referenced
-`Task`. So, let's do it:
+So, let's do it:
 
 ```bash
 $ ./kapply task.yaml
-task.tekton.dev/build-push created
 taskrun.tekton.dev/build-image created
 ```
 
@@ -255,41 +214,20 @@ $ kubectl delete buildtemplate/kaniko
 
 ### Deploying the application
 
-The `service.yaml` file will be used to create the Knative Service based
-on the image we just created and uploaded to our local registry:
+Now we can deploy the application:
 
-```bash
-apiVersion: serving.knative.dev/v1alpha1
-kind: Service
-metadata:
-  name: hello
-spec:
-  template:
-    spec:
-      containers:
-      - image: hub-default.${DOMAIN}:443/hello
+```
+$ kn service create hello --image hub-default.kndemo.us-south.containers.appdomain.cloud:443/hello
+Service 'hello' successfully created in namespace 'default'.
+Waiting for service 'hello' to become ready ... OK
+
+Service URL:
+http://hello-default.kndemo.us-south.containers.appdomain.cloud
 ```
 
-Nothing too exciting here other than the `image` property points to our
+Nothing too exciting here other than the `image` argument points to our
 newly created image that's stored in our local Docker Registry. Make sure
 the image name here matches the image name from the Task used to build it.
-
-Let's create it:
-
-```bash
-$ ./kapply service.yaml
-service.serving.knative.dev/hello created
-```
-
-Now wait for the service to be ready. You can run this command:
-
-```bash
-$ kubectl get ksvc/hello
-NAME    URL                                                               LATESTCREATED   LATESTREADY   READY   REASON
-hello   http://hello-default.kntest.us-south.containers.appdomain.cloud   hello-mv9bv     hello-mv9bv   True
-```
-
-until the `READY` column shows `True`.
 
 ### Testing the application
 
@@ -303,7 +241,7 @@ $ curl -s http://hello-default.kntest.us-south.containers.appdomain.cloud
 All done, so let's clean-up:
 
 ```bash
-$ kubectl delete -f service.yaml -f hub.yaml
+$ kubectl delete ksvc/hub ksvc/hello
 ```
 
 ## Some final notes

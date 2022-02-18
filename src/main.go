@@ -4,17 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 )
 
 func main() {
 	text := "Hello World!"
 	rev := os.Getenv("K_REVISION") // K_REVISION=helloworld-7vh75
-	if i := strings.LastIndex(rev, "-"); i > 0 {
-		rev = rev[i+1:] + ": "
-	}
-	msg := fmt.Sprintf("%s%s\n", rev, text)
+	msg := fmt.Sprintf("%s: %s\n", rev, text)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Got request\n")
 		time.Sleep(500 * time.Millisecond)
